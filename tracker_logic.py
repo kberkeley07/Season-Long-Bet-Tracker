@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable
+import math
 
 import pandas as pd
 
@@ -168,13 +167,21 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
     projected = per_game * season_games if completed else 0.0
     line = float(bet["line"])
 
+    # NFL box-score totals are whole numbers. Convert a sportsbook line into the
+    # actual whole-number total needed to win the bet. Example: O 674.5 -> 675.
+    over_cash_target = math.floor(line) + 1
+    under_max_total = math.ceil(line) - 1
+
     if str(bet["side"]) == "Over":
-        amount_needed = max((line + 0.01) - current, 0.0)
+        amount_needed = max(over_cash_target - current, 0.0)
         needed_pg = amount_needed / remaining if remaining else 0.0
+        cash_target = float(over_cash_target)
     else:
-        # For unders this is the maximum average the player can add while staying below the line.
-        room = max((line - 0.01) - current, 0.0)
+        # For an Under, this is the maximum average the player can add while
+        # finishing on the winning side of the line.
+        room = max(under_max_total - current, 0.0)
         needed_pg = room / remaining if remaining else 0.0
+        cash_target = float(under_max_total)
 
     status, icon = status_for_bet(str(bet["side"]), line, projected, completed)
     profit = american_profit(float(bet["stake"]), int(bet["odds"]))
@@ -193,6 +200,7 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
         "per_game": per_game,
         "projected": projected,
         "needed_per_game": needed_pg,
+        "cash_target": cash_target,
         "status": status,
         "status_icon": icon,
         "odds": int(bet["odds"]),
@@ -203,3 +211,33 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
         "schedule_progress": schedule_progress,
         "stat_progress": stat_progress,
     }
+
+
+def projection_history(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULAR_SEASON_GAMES) -> pd.DataFrame:
+    """Return the bet's projected final total after each completed league week.
+
+    The calculation reuses ``evaluate_bet`` on a week-by-week slice of the
+    nflverse data, so bye weeks and missed player games are handled the same
+    way as the main dashboard.
+    """
+    if stats.empty or "week" not in stats.columns:
+        return pd.DataFrame(columns=["Week", "Projected final", "Bet target", "Current total"])
+
+    weeks = pd.to_numeric(stats["week"], errors="coerce").dropna().astype(int)
+    if weeks.empty:
+        return pd.DataFrame(columns=["Week", "Projected final", "Bet target", "Current total"])
+
+    rows = []
+    for week in sorted(weeks.unique()):
+        through_week = stats.loc[pd.to_numeric(stats["week"], errors="coerce").le(week)].copy()
+        result = evaluate_bet(bet, through_week, season_games=season_games)
+        if result["games_completed"] <= 0:
+            continue
+        rows.append({
+            "Week": int(week),
+            "Projected final": float(result["projected"]),
+            "Bet target": float(result["cash_target"]),
+            "Current total": float(result["current"]),
+        })
+
+    return pd.DataFrame(rows)
