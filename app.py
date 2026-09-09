@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from tracker_logic import STAT_OPTIONS, evaluate_bet, normalize_bets
+from tracker_logic import STAT_OPTIONS, evaluate_bet, normalize_bets, projection_history
 
 SEASON = 2026
 ROOT = Path(__file__).resolve().parent
@@ -34,6 +34,11 @@ st.markdown(
 .bet-title {font-size: 1.08rem; font-weight: 750; margin-bottom: 2px;}
 .bet-sub {opacity: .72; font-size: .88rem; margin-bottom: 10px;}
 .status {font-weight: 700;}
+.pace-badge {display:inline-block; font-size:.78rem; font-weight:800; padding:4px 9px; border-radius:999px; margin-top:5px;}
+.pace-green {background:rgba(34,197,94,.15); color:#22c55e;}
+.pace-yellow {background:rgba(234,179,8,.16); color:#d4a400;}
+.pace-red {background:rgba(239,68,68,.15); color:#ef4444;}
+.pace-gray {background:rgba(128,128,128,.14); color:inherit;}
 .small {font-size: .85rem; opacity: .72;}
 hr {margin: 1rem 0 !important;}
 </style>
@@ -128,27 +133,48 @@ if evaluated:
 
     for item in evaluated:
         bet_label = f'{item["side"]} {fmt_num(item["line"])} {item["stat"]}'
+        badge_class = {
+            "On pace": "pace-green",
+            "Sweat": "pace-yellow",
+            "Off pace": "pace-red",
+            "Not started": "pace-gray",
+        }.get(item["status"], "pace-gray")
         st.markdown(
             f"""
 <div class="bet-card">
-  <div class="bet-title">{item['status_icon']} {item['player']}</div>
+  <div class="bet-title">{item['player']}</div>
   <div class="bet-sub">{bet_label} • {fmt_odds(item['odds'])}{(' • $' + format(item['stake'], ',.2f')) if item['stake'] > 0 else ''}{(' • ' + item['sportsbook']) if item['sportsbook'] else ''}</div>
-  <div class="status">{item['status']}</div>
+  <span class="pace-badge {badge_class}">{item['status_icon']} {item['status']}</span>
 </div>
 """,
             unsafe_allow_html=True,
         )
         col1, col2, col3 = st.columns(3)
         col1.metric("Current", fmt_num(item["current"]))
-        col2.metric("17-game pace", fmt_num(item["projected"]) if item["games_completed"] else "—")
+        col2.metric("Projected final", fmt_num(item["projected"]) if item["games_completed"] else "—")
         col3.metric(
             "Need / game" if item["side"] == "Over" else "Max / game",
             fmt_num(item["needed_per_game"]) if item["games_remaining"] else "—",
         )
 
         if item["games_completed"]:
-            raw_progress = min(max(item["stat_progress"], 0), 1)
-            st.progress(raw_progress, text=f"{fmt_num(item['current'])} of {fmt_num(item['line'])} • {item['games_completed']} team games complete")
+            # Use the actual whole-number cash target for the progress bar.
+            progress_target = item["cash_target"] if item["side"] == "Over" else item["line"]
+            raw_progress = min(max(item["current"] / progress_target if progress_target else 0, 0), 1)
+            target_text = f"{fmt_num(item['current'])} / {fmt_num(item['cash_target'])} needed to cash" if item["side"] == "Over" else f"{fmt_num(item['current'])} / stay at {fmt_num(item['cash_target'])} or below"
+            st.progress(raw_progress, text=f"{target_text} • {item['games_completed']} team games complete")
+
+            # Weekly pace trend: projected season finish after every completed week.
+            bet_row = bets.loc[bets["player_name"].eq(item["player"]) & bets["stat"].eq(item["stat"]) & bets["line"].eq(item["line"])].iloc[0]
+            trend = projection_history(bet_row, stats)
+            if not trend.empty:
+                st.caption("Projected season finish by week")
+                chart_df = trend.set_index("Week")[["Projected final", "Bet target"]]
+                st.line_chart(chart_df, height=180, use_container_width=True)
+                if len(trend) >= 2:
+                    change = trend["Projected final"].iloc[-1] - trend["Projected final"].iloc[-2]
+                    arrow = "↑" if change > 0 else "↓" if change < 0 else "→"
+                    st.caption(f"{arrow} Projection moved {fmt_num(abs(change))} from last week")
         else:
             st.progress(0, text="Season has not started / stats not available yet")
 
@@ -157,6 +183,7 @@ if evaluated:
             d1.write(f"**Team:** {item['team']}")
             d1.write(f"**Games remaining:** {item['games_remaining']}")
             d1.write(f"**Current per game:** {fmt_num(item['per_game'])}")
+            d1.write(f"**Winning total:** {fmt_num(item['cash_target'])}{'+' if item['side'] == 'Over' else ' or fewer'}")
             if item["stake"] > 0 and item["odds"] != 0:
                 d2.write(f"**Potential profit:** ${item['potential_profit']:,.2f}")
             else:
