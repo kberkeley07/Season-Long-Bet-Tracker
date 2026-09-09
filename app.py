@@ -86,7 +86,7 @@ def fmt_odds(odds: int) -> str:
     return f"+{odds}" if odds > 0 else str(odds)
 
 
-st.title("Berk's Book Futures")
+st.title("Season Long Bet Tracker")
 st.caption(f"2026 NFL season-long bet tracker • weekly stats via nflverse")
 
 bets = load_bets()
