@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import pandas as pd
@@ -48,23 +49,24 @@ def load_bets() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_stats() -> tuple[pd.DataFrame, str | None]:
+def load_stats() -> tuple[pd.DataFrame, str | None, datetime]:
     """Fetch the current weekly nflverse player file.
 
     A 404 is expected before the first weekly stats file of the season exists.
     """
+    checked_at = datetime.now(ZoneInfo("America/New_York"))
     try:
         response = requests.get(NFLVERSE_URL, timeout=20)
         if response.status_code == 404:
-            return pd.DataFrame(), "2026 weekly stats have not been published yet."
+            return pd.DataFrame(), "2026 weekly stats have not been published yet.", checked_at
         response.raise_for_status()
         from io import StringIO
         df = pd.read_csv(StringIO(response.text))
         if "season_type" in df.columns:
             df = df[df["season_type"].astype(str).eq("REG")].copy()
-        return df, None
+        return df, None, checked_at
     except Exception as exc:
-        return pd.DataFrame(), f"Could not refresh NFL stats right now: {exc}"
+        return pd.DataFrame(), f"Could not refresh NFL stats right now: {exc}", checked_at
 
 
 def fmt_num(value: float) -> str:
@@ -83,7 +85,7 @@ st.title("Berk's Book Futures")
 st.caption(f"2026 NFL season-long bet tracker • weekly stats via nflverse")
 
 bets = load_bets()
-stats, stats_error = load_stats()
+stats, stats_error, stats_checked_at = load_stats()
 
 left, right = st.columns([1.25, 1])
 with left:
@@ -91,13 +93,16 @@ with left:
         st.cache_data.clear()
         st.rerun()
 with right:
-    st.caption(f"Checked {datetime.now().strftime('%b %d • %I:%M %p')}")
+    st.caption("Auto-checks at most once per hour")
 
+refresh_label = stats_checked_at.strftime("%b %d • %I:%M %p ET").replace(" 0", " ")
 if stats_error:
-    st.info(stats_error)
+    st.info(f"{stats_error}\n\n**Last refresh attempt:** {refresh_label}")
 elif not stats.empty:
     max_week = int(pd.to_numeric(stats.get("week"), errors="coerce").max()) if "week" in stats.columns else 0
-    st.success(f"Stats loaded through Week {max_week}.")
+    st.success(f"**Stats through Week {max_week}**  •  Last refreshed {refresh_label}")
+else:
+    st.info(f"No weekly stats are available yet.  •  Last checked {refresh_label}")
 
 if bets.empty:
     st.warning("No bets are in bets.csv yet. Add your futures in the Manage Bets tab below.")
