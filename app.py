@@ -19,7 +19,7 @@ NFLVERSE_URL = (
 )
 
 st.set_page_config(
-    page_title="Berk's Book Futures",
+    page_title="Season Long Bet Tracker",
     page_icon="📈",
     layout="centered",
     initial_sidebar_state="collapsed",
