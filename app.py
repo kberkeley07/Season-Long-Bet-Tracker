@@ -115,6 +115,17 @@ if bets.empty:
 else:
     evaluated = [evaluate_bet(row, stats) for _, row in bets.iterrows()]
 
+    # Backward compatibility: a Streamlit redeploy can briefly run the new
+    # app.py with an older cached tracker_logic.py. Fill the newer bankroll
+    # fields from the existing stake/profit values so the dashboard never
+    # crashes during that mismatch.
+    for item in evaluated:
+        stake = float(item.get("stake", 0) or 0)
+        profit = float(item.get("potential_profit", 0) or 0)
+        item.setdefault("potential_payout", stake + profit if stake > 0 else 0.0)
+        item.setdefault("win_net", profit)
+        item.setdefault("loss_net", -stake if stake > 0 else 0.0)
+
 if evaluated:
     total_staked = sum(x["stake"] for x in evaluated)
     total_profit = sum(x["potential_profit"] for x in evaluated)
