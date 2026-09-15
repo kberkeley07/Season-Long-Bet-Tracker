@@ -19,7 +19,7 @@ NFLVERSE_URL = (
 )
 
 st.set_page_config(
-    page_title="Season Long Bet Tracker",
+    page_title="Berk's Book Futures",
     page_icon="📈",
     layout="centered",
     initial_sidebar_state="collapsed",
@@ -86,7 +86,7 @@ def fmt_odds(odds: int) -> str:
     return f"+{odds}" if odds > 0 else str(odds)
 
 
-st.title("Season Long Bet Tracker")
+st.title("Berk's Book Futures")
 st.caption(f"2026 NFL season-long bet tracker • weekly stats via nflverse")
 
 bets = load_bets()
@@ -118,14 +118,29 @@ else:
 if evaluated:
     total_staked = sum(x["stake"] for x in evaluated)
     total_profit = sum(x["potential_profit"] for x in evaluated)
+    total_payout = sum(x["potential_payout"] for x in evaluated)
+    all_win_roi = (total_profit / total_staked * 100) if total_staked > 0 else 0.0
     on_pace = sum(x["status"] == "On pace" for x in evaluated)
     c1, c2, c3 = st.columns(3)
     c1.metric("Bets", len(evaluated))
     c2.metric("On pace", f"{on_pace}/{len(evaluated)}")
     if total_staked > 0:
-        c3.metric("Risked", f"${total_staked:,.0f}", help=f"Potential profit: ${total_profit:,.2f}")
+        c3.metric("Risked", f"${total_staked:,.0f}", help=f"Maximum net profit if every bet wins: ${total_profit:,.2f}")
     else:
         c3.metric("Risked", "—", help="Add your stake and odds later if you want bankroll tracking.")
+
+    if total_staked > 0:
+        st.subheader("Bankroll outlook")
+        b1, b2 = st.columns(2)
+        b1.metric("Total wagered", f"${total_staked:,.2f}")
+        b2.metric("Max net profit", f"+${total_profit:,.2f}", help="Net profit if every listed bet wins.")
+        b3, b4 = st.columns(2)
+        b3.metric("Max gross payout", f"${total_payout:,.2f}", help="Original wagers returned + profit if every listed bet wins.")
+        b4.metric("Max loss", f"-${total_staked:,.2f}", help="Net loss if every listed bet loses.")
+        st.caption(
+            f"Potential net P/L range: **-${total_staked:,.2f} to +${total_profit:,.2f}** "
+            f"• All-win ROI: **{all_win_roi:.1f}%**"
+        )
 
     st.subheader("My futures")
     status_order = {"On pace": 0, "Sweat": 1, "Off pace": 2, "Not started": 3}
@@ -157,6 +172,13 @@ if evaluated:
             fmt_num(item["needed_per_game"]) if item["games_remaining"] else "—",
         )
 
+        if item["stake"] > 0 and item["odds"] != 0:
+            st.caption(
+                f"💰 Win: **+${item['win_net']:,.2f} net** "
+                f"(${item['potential_payout']:,.2f} total payout) • "
+                f"Lose: **-${item['stake']:,.2f}**"
+            )
+
         if item["games_completed"]:
             # Use the actual whole-number cash target for the progress bar.
             progress_target = item["cash_target"] if item["side"] == "Over" else item["line"]
@@ -185,9 +207,12 @@ if evaluated:
             d1.write(f"**Current per game:** {fmt_num(item['per_game'])}")
             d1.write(f"**Winning total:** {fmt_num(item['cash_target'])}{'+' if item['side'] == 'Over' else ' or fewer'}")
             if item["stake"] > 0 and item["odds"] != 0:
-                d2.write(f"**Potential profit:** ${item['potential_profit']:,.2f}")
+                d2.write(f"**Wager:** ${item['stake']:,.2f}")
+                d2.write(f"**Win — net profit:** +${item['win_net']:,.2f}")
+                d2.write(f"**Win — total payout:** ${item['potential_payout']:,.2f}")
+                d2.write(f"**Loss — net P/L:** -${item['stake']:,.2f}")
             else:
-                d2.write("**Potential profit:** —")
+                d2.write("**Wager / payout:** —")
             d2.write(f"**Sportsbook:** {item['sportsbook'] or '—'}")
             d2.write(f"**Notes:** {item['notes'] or '—'}")
 
@@ -237,6 +262,8 @@ with about:
 **Need / game:** for an Over, this is the average needed over the remaining team games to clear the line. For an Under, it is the maximum average the player can add while staying below the line.
 
 **Status:** green means the projected pace is comfortably on the correct side of the line, yellow means within roughly 5%, and red means currently off pace.
+
+**Bankroll outlook:** total wagered is your money at risk. Net profit excludes your returned stake; gross payout includes your returned stake. The potential P/L range shows the all-lose to all-win outcomes for the listed wagers.
 
 **Data note:** this is a personal tracking tool. Always verify settled sportsbook results against the book's official grading rules.
 """

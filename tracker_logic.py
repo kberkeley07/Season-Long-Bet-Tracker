@@ -46,6 +46,14 @@ def american_profit(stake: float, odds: int | float) -> float:
     return stake * 100 / abs(odds)
 
 
+def american_payout(stake: float, odds: int | float) -> float:
+    """Gross return if the wager wins (original stake + net profit)."""
+    stake = float(stake or 0)
+    if stake <= 0 or float(odds or 0) == 0:
+        return 0.0
+    return stake + american_profit(stake, odds)
+
+
 def normalize_bets(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for col in REQUIRED_BET_COLUMNS:
@@ -184,7 +192,10 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
         cash_target = float(under_max_total)
 
     status, icon = status_for_bet(str(bet["side"]), line, projected, completed)
-    profit = american_profit(float(bet["stake"]), int(bet["odds"]))
+    stake = float(bet["stake"])
+    odds = int(bet["odds"])
+    profit = american_profit(stake, odds)
+    payout = american_payout(stake, odds)
     schedule_progress = completed / season_games if season_games else 0
     stat_progress = current / line if line > 0 else 0
 
@@ -203,9 +214,12 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
         "cash_target": cash_target,
         "status": status,
         "status_icon": icon,
-        "odds": int(bet["odds"]),
-        "stake": float(bet["stake"]),
+        "odds": odds,
+        "stake": stake,
         "potential_profit": profit,
+        "potential_payout": payout,
+        "win_net": profit,
+        "loss_net": -stake if stake > 0 else 0.0,
         "sportsbook": bet["sportsbook"],
         "notes": bet["notes"],
         "schedule_progress": schedule_progress,
