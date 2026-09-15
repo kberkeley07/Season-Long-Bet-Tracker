@@ -163,6 +163,18 @@ def status_for_bet(side: str, line: float, projected: float, games_completed: in
     return "Off pace", "🔴"
 
 
+def projected_win_from_pace(side: str, line: float, projected: float, games_completed: int) -> bool | None:
+    """Whether the current projected final total is on the winning side of the bet.
+
+    Returns None before the player/team has a completed game, because there is no pace yet.
+    """
+    if games_completed <= 0:
+        return None
+    if side == "Over":
+        return projected > line
+    return projected < line
+
+
 def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULAR_SEASON_GAMES) -> dict:
     player_rows = find_player_rows(stats, str(bet["player_name"]))
     current = current_stat(player_rows, str(bet["stat"]))
@@ -196,6 +208,16 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
     odds = int(bet["odds"])
     profit = american_profit(stake, odds)
     payout = american_payout(stake, odds)
+    projected_win = projected_win_from_pace(str(bet["side"]), line, projected, completed)
+    if projected_win is True:
+        pace_net = profit
+        pace_return = payout
+    elif projected_win is False:
+        pace_net = -stake if stake > 0 else 0.0
+        pace_return = 0.0
+    else:
+        pace_net = 0.0
+        pace_return = 0.0
     schedule_progress = completed / season_games if season_games else 0
     stat_progress = current / line if line > 0 else 0
 
@@ -220,6 +242,9 @@ def evaluate_bet(bet: pd.Series, stats: pd.DataFrame, season_games: int = REGULA
         "potential_payout": payout,
         "win_net": profit,
         "loss_net": -stake if stake > 0 else 0.0,
+        "projected_win": projected_win,
+        "pace_net": pace_net,
+        "pace_return": pace_return,
         "sportsbook": bet["sportsbook"],
         "notes": bet["notes"],
         "schedule_progress": schedule_progress,
